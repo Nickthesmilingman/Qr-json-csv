@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>QR → CSV</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #08090b;
+    --surf:     #111318;
+    --surf2:    #181b22;
+    --border:   #1f2330;
+    --accent:   #f0c040;
+    --green:    #3ddc84;
+    --red:      #ff5555;
+    --blue:     #4fa3ff;
+    --text:     #dde1ec;
+    --muted:    #4a5068;
+    --scan-col: #f0c040;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 28px 16px 80px;
+  }
+
+  /* ── Header ── */
+  .hdr { text-align: center; margin-bottom: 28px; }
+  .hdr h1 {
+    font-size: clamp(1.6rem, 5vw, 2.2rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+  }
+  .hdr p { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+  /* ── Layout ── */
+  .wrap { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--surf);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .clabel {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* ── Camera ── */
+  .cam-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+  }
+  #video {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  /* scanning line */
+  .scan-line {
+    position: absolute;
+    left: 8%; right: 8%;
+    height: 2px;
+    background: var(--scan-col);
+    box-shadow: 0 0 12px var(--scan-col), 0 0 30px var(--scan-col);
+    animation: scanmove 2s ease-in-out infinite;
+    display: none;
+    z-index: 4;
+  }
+  @keyframes scanmove {
+    0%   { top: 10%; }
+    50%  { top: 88%; }
+    100% { top: 10%; }
+  }
+  /* corner brackets */
+  .corners {
+    position: absolute; inset: 0;
+    pointer-events: none; z-index: 3;
+    display: none;
+  }
+  .corners::before, .corners::after,
+  .cam-wrap > .corners2::before, .cam-wrap > .corners2::after {
+    content: '';
+    position: absolute;
+    width: 28px; height: 28px;
+    border-color: var(--accent);
+    border-style: solid;
+  }
+  .corners::before  { top: 10px; left: 10px;  border-width: 3px 0 0 3px; }
+  .corners::after   { top: 10px; right: 10px; border-width: 3px 3px 0 0; }
+  .corners2::before { bottom: 10px; left: 10px;  border-width: 0 0 3px 3px; }
+  .corners2::after  { bottom: 10px; right: 10px; border-width: 0 3px 3px 0; }
+
+  .cam-idle {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+  }
+  .cam-idle svg { opacity: 0.3; }
+
+  /* flash on detect */
+  .flash {
+    position: absolute; inset: 0;
+    background: rgba(240,192,64,0.35);
+    z-index: 10;
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.05s;
+  }
+  .flash.on { opacity: 1; }
+
+  #canvas { display: none; }
+
+  /* ── Buttons ── */
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  button {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+  }
+  .btn-y  { background: var(--accent); color: #08090b; }
+  .btn-y:hover  { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn-g  { background: var(--green); color: #08090b; }
+  .btn-g:hover  { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-b  { background: var(--blue); color: #08090b; }
+  .btn-b:hover  { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid rgba(255,85,85,0.3); font-size: 0.75rem; padding: 7px 14px; }
+  .btn-danger:hover { background: rgba(255,85,85,0.08); }
+  .btn-sm { padding: 6px 13px; font-size: 0.74rem; }
+  .ml { margin-left: auto; }
+
+  button:disabled { opacity: 0.35; pointer-events: none; }
+
+  /* ── Paste area ── */
+  textarea {
+    width: 100%;
+    background: var(--surf2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    padding: 12px;
+    resize: vertical;
+    min-height: 110px;
+    outline: none;
+    transition: border-color 0.2s;
+    line-height: 1.6;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--muted); }
+
+  /* ── Status toast ── */
+  .toast {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    padding: 9px 14px;
+    border-radius: 8px;
+    display: none;
+    animation: fadein 0.2s ease;
+  }
+  @keyframes fadein { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform:none; } }
+  .toast.ok  { background: rgba(61,220,132,0.1); color: var(--green); border: 1px solid rgba(61,220,132,0.25); display: block; }
+  .toast.err { background: rgba(255,85,85,0.1);  color: var(--red);   border: 1px solid rgba(255,85,85,0.25);  display: block; }
+  .toast.inf { background: rgba(79,163,255,0.1); color: var(--blue);  border: 1px solid rgba(79,163,255,0.25); display: block; }
+
+  /* ── Pool ── */
+  .pool-hdr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .pool-hdr .clabel { margin-bottom: 0; }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.65rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .bdg-y { background: rgba(240,192,64,0.12); color: var(--accent); border: 1px solid rgba(240,192,64,0.25); }
+  .bdg-g { background: rgba(61,220,132,0.1);  color: var(--green);  border: 1px solid rgba(61,220,132,0.2); }
+
+  .tbl-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.76rem; font-family: 'JetBrains Mono', monospace; }
+  thead tr { background: rgba(240,192,64,0.05); border-bottom: 1px solid var(--border); }
+  thead th { padding: 8px 12px; text-align: left; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); white-space: nowrap; }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody td { padding: 8px 12px; color: var(--text); white-space: nowrap; }
+  .xbtn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.8rem; padding: 2px 6px; border-radius: 4px; }
+  .xbtn:hover { color: var(--red); background: rgba(255,85,85,0.1); }
+
+  .empty { text-align: center; padding: 30px; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; line-height: 1.9; }
+
+  .csv-preview {
+    background: var(--surf2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: pre;
+    overflow-x: auto;
+    max-height: 130px;
+    overflow-y: auto;
+    line-height: 1.7;
+    margin-top: 14px;
+  }
+
+  /* ── QR not supported notice ── */
+  #noApiNote {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px;
+    display: none;
+  }
+
+  /* camera stop btn */
+  #stopBtn { display: none; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>QR → CSV</h1>
+  <p>scan · auto-save · export &nbsp;·&nbsp; works offline</p>
+</div>
+
+<div class="wrap">
+
+  <!-- ── CAMERA SCAN ── -->
+  <div class="card">
+    <div class="clabel">Camera Scan</div>
+    <div class="cam-wrap" id="camWrap">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="scan-line" id="scanLine"></div>
+      <div class="corners"  id="corners"></div>
+      <div class="corners2" id="corners2"></div>
+      <div class="flash" id="flash"></div>
+      <div class="cam-idle" id="camIdle">
+        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M3 9V6a1 1 0 0 1 1-1h3M3 15v3a1 1 0 0 0 1 1h3M21 9V6a1 1 0 0 0-1-1h-3M21 15v3a1 1 0 0 1-1 1h-3"/>
+          <rect x="7" y="7" width="4" height="4" rx="0.5"/>
+          <rect x="13" y="7" width="4" height="4" rx="0.5"/>
+          <rect x="7" y="13" width="4" height="4" rx="0.5"/>
+          <path d="M13 13h1m2 0h1m-2 2v1m0 2v1"/>
+        </svg>
+        <span>tap Start Camera</span>
+      </div>
+    </div>
+    <p id="noApiNote">⚠ BarcodeDetector not supported on this browser — use paste below instead.</p>
+    <div class="btn-row">
+      <button class="btn-y" id="startBtn" onclick="startCamera()">Start Camera</button>
+      <button class="btn-ghost" id="stopBtn" onclick="stopCamera()">Stop</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- ── PASTE FALLBACK ── -->
+  <div class="card">
+    <div class="clabel">Paste JSON (manual / fallback)</div>
+    <textarea id="pasteBox" placeholder='{"Name":"...","SeatNo":"...","SID":"...","SchoolIndexNo":"..."}
+Paste one or multiple records'></textarea>
+    <div class="btn-row">
+      <button class="btn-g" onclick="parsePaste()">Parse &amp; Save</button>
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('pasteBox').value=''">Clear</button>
+    </div>
+  </div>
+
+  <!-- ── SAVED POOL ── -->
+  <div class="card">
+    <div class="pool-hdr">
+      <div class="clabel">Saved Pool</div>
+      <span class="badge bdg-g" id="poolBadge">0 records</span>
+      <div class="ml" style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-b" onclick="exportCSV()">&#x2193; Export CSV</button>
+        <button class="btn-danger btn-sm" onclick="clearPool()">Clear All</button>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>School Index</th><th>Seat No</th><th>SID No</th><th>Name</th><th></th></tr>
+        </thead>
+        <tbody id="poolBody">
+          <tr><td colspan="6"><div class="empty">// pool is empty<br>scan a QR or paste JSON to begin</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="clabel" style="margin-top:16px;">CSV Preview</div>
+    <div class="csv-preview" id="csvBox">—</div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+// ── IndexedDB ──────────────────────────────────────────────────────────────
+const DB  = 'ExamQR_v1';
+const STR = 'records';
+let db;
+
+function openDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = e => {
+      if (!e.target.result.objectStoreNames.contains(STR))
+        e.target.result.createObjectStore(STR, { keyPath:'id', autoIncrement:true });
+    };
+    req.onsuccess = e => { db = e.target.result; res(); };
+    req.onerror   = rej;
+  });
+}
+function dbGetAll() {
+  return new Promise((res,rej) => {
+    const r = db.transaction(STR,'readonly').objectStore(STR).getAll();
+    r.onsuccess = () => res(r.result); r.onerror = rej;
+  });
+}
+function dbAdd(row) {
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STR,'readwrite');
+    tx.objectStore(STR).add(row);
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+function dbAddMany(rows) {
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STR,'readwrite');
+    const st = tx.objectStore(STR);
+    rows.forEach(r => st.add(r));
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+function dbDel(id) {
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STR,'readwrite');
+    tx.objectStore(STR).delete(id);
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+function dbClear() {
+  return new Promise((res,rej) => {
+    const tx = db.transaction(STR,'readwrite');
+    tx.objectStore(STR).clear();
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let pool = [];
+let scanning = false;
+let videoStream = null;
+let detector = null;
+let rafId = null;
+let lastScanned = '';
+let lastScannedAt = 0;
+const COOLDOWN = 2500; // ms between same QR re-scan
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+openDB().then(() => dbGetAll()).then(rows => { pool = rows; renderPool(); });
+
+// Check BarcodeDetector support
+if (!('BarcodeDetector' in window)) {
+  document.getElementById('noApiNote').style.display = 'block';
+  document.getElementById('startBtn').disabled = true;
+}
+
+// ── Camera ─────────────────────────────────────────────────────────────────
+async function startCamera() {
+  if (!('BarcodeDetector' in window)) {
+    showToast('BarcodeDetector not supported — use paste below', 'err'); return;
+  }
+
+  try {
+    detector = new BarcodeDetector({ formats: ['qr_code'] });
+  } catch(e) {
+    showToast('Could not init QR detector', 'err'); return;
+  }
+
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } }
+    });
+  } catch(e) {
+    showToast('Camera permission denied', 'err'); return;
+  }
+
+  const video = document.getElementById('video');
+  video.srcObject = videoStream;
+  await video.play();
+
+  scanning = true;
+  document.getElementById('camIdle').style.display   = 'none';
+  document.getElementById('scanLine').style.display  = 'block';
+  document.getElementById('corners').style.display   = 'block';
+  document.getElementById('corners2').style.display  = 'block';
+  document.getElementById('startBtn').style.display  = 'none';
+  document.getElementById('stopBtn').style.display   = 'inline-block';
+
+  showToast('// camera active — point at QR code', 'inf');
+  scanLoop();
+}
+
+async function scanLoop() {
+  if (!scanning) return;
+  const video = document.getElementById('video');
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    try {
+      const barcodes = await detector.detect(video);
+      if (barcodes.length > 0) {
+        const raw = barcodes[0].rawValue;
+        const now = Date.now();
+        // cooldown to avoid double-saves of the same code
+        if (raw !== lastScanned || (now - lastScannedAt) > COOLDOWN) {
+          lastScanned   = raw;
+          lastScannedAt = now;
+          await handleScanned(raw);
+        }
+      }
+    } catch(e) { /* frame error, skip */ }
+  }
+  rafId = requestAnimationFrame(scanLoop);
+}
+
+function stopCamera() {
+  scanning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+  videoStream = null;
+  const video = document.getElementById('video');
+  video.srcObject = null;
+  document.getElementById('camIdle').style.display  = 'flex';
+  document.getElementById('scanLine').style.display = 'none';
+  document.getElementById('corners').style.display  = 'none';
+  document.getElementById('corners2').style.display = 'none';
+  document.getElementById('startBtn').style.display = 'inline-block';
+  document.getElementById('stopBtn').style.display  = 'none';
+  showToast('// camera stopped', 'inf');
+}
+
+// ── Handle a scanned / pasted QR value ────────────────────────────────────
+async function handleScanned(raw) {
+  const record = tryParse(raw);
+  if (!record) {
+    showToast('// QR decoded but not valid exam JSON', 'err'); return;
+  }
+  await dbAdd(record);
+  pool = await dbGetAll();
+  renderPool();
+  flashScreen();
+  // vibrate on mobile
+  if (navigator.vibrate) navigator.vibrate([80]);
+  showToast('// saved: ' + record.name, 'ok');
+}
+
+// ── Paste parse ────────────────────────────────────────────────────────────
+async function parsePaste() {
+  const raw = document.getElementById('pasteBox').value.trim();
+  if (!raw) { showToast('// nothing to parse', 'err'); return; }
+
+  const found = [], errCount = [0];
+  let depth = 0, start = -1;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '{') { if (depth===0) start=i; depth++; }
+    else if (raw[i] === '}') {
+      depth--;
+      if (depth===0 && start!==-1) {
+        try { found.push(JSON.parse(raw.slice(start, i+1))); }
+        catch(e) { errCount[0]++; }
+        start = -1;
+      }
+    }
+  }
+
+  if (!found.length) { showToast('// no valid JSON found', 'err'); return; }
+
+  const records = found.map(mapObj).filter(r => r.name || r.seatNo);
+  if (!records.length) { showToast('// JSON found but missing exam fields', 'err'); return; }
+
+  await dbAddMany(records);
+  pool = await dbGetAll();
+  renderPool();
+  document.getElementById('pasteBox').value = '';
+  showToast('// saved ' + records.length + ' record(s) · total: ' + pool.length, 'ok');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function tryParse(text) {
+  // handle cases where QR value might have surrounding whitespace or URL prefix
+  const cleaned = text.trim().replace(/^[^{]*({.*})[^}]*$/, '$1');
+  try {
+    const obj = JSON.parse(cleaned);
+    const r = mapObj(obj);
+    if (!r.name && !r.seatNo) return null;
+    return r;
+  } catch(e) { return null; }
+}
+
+function mapObj(o) {
+  return {
+    schoolIndex: t(o.SchoolIndexNo),
+    seatNo:      t(o.SeatNo),
+    sid:         t(o.SID),
+    name:        t(o.Name),
+  };
+}
+
+function t(v) { return (v||'').toString().trim(); }
+
+function flashScreen() {
+  const f = document.getElementById('flash');
+  f.classList.add('on');
+  setTimeout(() => f.classList.remove('on'), 150);
+}
+
+// ── Delete / Clear ─────────────────────────────────────────────────────────
+async function delRow(id) {
+  await dbDel(id);
+  pool = await dbGetAll();
+  renderPool();
+}
+
+async function clearPool() {
+  if (!pool.length) return;
+  if (!confirm('Delete all ' + pool.length + ' saved records?')) return;
+  await dbClear();
+  pool = [];
+  renderPool();
+  showToast('// pool cleared', 'inf');
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!pool.length) { showToast('// nothing to export', 'err'); return; }
+  const csv  = buildCSV(pool);
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.setAttribute('href', url);
+  a.setAttribute('download', 'exam_' + new Date().toISOString().slice(0,10) + '.csv');
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('// exported ' + pool.length + ' records', 'ok');
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderPool() {
+  document.getElementById('poolBadge').textContent =
+    pool.length + ' record' + (pool.length !== 1 ? 's' : '');
+
+  if (!pool.length) {
+    document.getElementById('poolBody').innerHTML =
+      '<tr><td colspan="6"><div class="empty">// pool is empty<br>scan a QR or paste JSON to begin</div></td></tr>';
+    document.getElementById('csvBox').textContent = '—';
+    return;
+  }
+
+  document.getElementById('poolBody').innerHTML = pool.map((r,i) => `
+    <tr>
+      <td style="color:var(--muted)">${i+1}</td>
+      <td>${x(r.schoolIndex)}</td>
+      <td>${x(r.seatNo)}</td>
+      <td>${x(r.sid)}</td>
+      <td>${x(r.name)}</td>
+      <td><button class="xbtn" onclick="delRow(${r.id})">&#x2715;</button></td>
+    </tr>`).join('');
+
+  document.getElementById('csvBox').textContent = buildCSV(pool);
+}
+
+function buildCSV(rows) {
+  return ['School Index,Seat No,SID No,Name',
+    ...rows.map(r => [r.schoolIndex, r.seatNo, r.sid, r.name].map(csvF).join(','))
+  ].join('\n');
+}
+
+function csvF(v) {
+  v = (v||'').toString();
+  return /[,"\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v;
+}
+
+function x(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, 3500);
+}
+</script>
+</body>
+</html>
